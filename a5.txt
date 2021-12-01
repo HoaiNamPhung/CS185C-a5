@@ -1,0 +1,78 @@
+1) I downloaded weka using the following command:
+
+wget http://prdownloads.sourceforge.net/weka/weka-3-8-5.zip
+
+2) I updated my CLASSPATH to include weka as follows:
+
+cd ~/weka-3-8-5 
+export CLASSPATH=$CLASSPATH:`pwd`/weka.jar:`pwd`/libsvm.jar
+
+3) I converted my REVIEW files as follows:
+
+cd CS185C/assignments/a5
+mkdir reviews
+cd reviews
+ln -s ~/CS185C/assignments/a4/REVIEWS REVIEWS
+ln -s ~/CS185C/assignments/a4/REVIEWS_UNHELPFUL REVIEWS_UNHELPFUL
+cd ~/
+ln -s ~/CS185C/assignments/a5/reviews reviews
+cd ~/weka-3-8-5 
+java weka.core.converters.TextDirectoryLoader -dir ~/reviews > ~/reviews.arff 
+
+4) Checking reviews.arff with vi, I found that it had the .arff file headers and each piece of data in a new line, as expected.
+
+5) I converted ~/weka-3-8-5.arff to a word vector using the following command:
+
+java -Xmx102400m weka.filters.unsupervised.attribute.StringToWordVector -i ~/reviews.arff -o ~/reviews_training.arff -M 2
+
+Note that I used 100 GB of heap space in memory, as command `free` returned that I had 255232 MB of free memory.
+
+6) Checking reviews_training.arff, there were now multiple @attributes in the header for what I assumed to be every word used across the entire dataset. At the bottom of the file were sets wrapped in curly brackets containing "1,X" number pairs, with X being a number from 1 to 999. Since I had chosen to limit the number of review files to process to 1000 back in assignment 4, I assume that X indicates which file. I have no idea what 1 means, but will assume that it is a weight given that we are going to be attempting to train an unsupervised MLM and are at the preprocessing stage.
+ 
+As such, I have come to the conclusion that each set wrapped in curly brackets is a mapping of a word to all of the files that it appears in, along with the weight that each file has with regards to that word's presence in the dataset.
+
+7) In order to test weka classifiers on the preprocessed dataset, I sent the .arff file to github and then downloaded it to my local PC for experimentation using the Weka GUI. 
+
+Due to time constraints, however, I decided to just run the classification method the instructor used as I was having difficulties correctly using the Weka GUI.
+
+java -Xmx102400m  weka.classifiers.meta.ClassificationViaRegression -W weka.classifiers.trees.M5P -num-decimal-places 4 -t ~/reviews_training.arff -d ~/reviews_training.model -c 1
+
+The classification returned 194/195 correctly classified instances for the error on training data and 193/195 correctly classified instances using stratified cross-validation. While this is super accurate, it may be due to the fact that the low amount of data resulted in overfitting on training data that would be reused for testing.
+
+8) I created a shell script text_binary_classify.sh as follows:
+
+#!/bin/bash
+# $1 = ~/weka-3-8-5
+# $2 = Absolute path to directory to convert to .arff and train on
+cd "$1";
+# Set your weka source code on your path for the current session.
+export CLASSPATH=$CLASSPATH:`pwd`/weka.jar:`pwd`/libsvm.jar;
+# $2 should be a directory containing two folders of different classifications, that in turn contain the datafiles to train on.
+# We convert it to a word vector in .arff format, which weka uses as input for its classifiers.
+java weka.core.converters.TextDirectoryLoader -dir "$2" > ~/weka_output/reviews.arff
+java -Xmx1024m weka.filters.unsupervised.attribute.StringToWordVector -i ~/weka_output/reviews.arff -o ~/weka_output/reviews_training.arff -M 2
+# We can then attempt to classify the data using regression.
+# This shell script will output classification results.
+java -Xmx1024m  weka.classifiers.meta.ClassificationViaRegression -W weka.classifiers.trees.M5P -num-decimal-places 4 -t ~/weka_output/reviews_training.arff -d ~/weka_output/reviews_training.model -c 1
+
+9) I then tested the script on the same data we tested on in questions (1) ~ (7) as follows:
+
+chmod 777 text_binary_classify.sh
+./text_binary_classify.sh ~/weka-3-8-5 ~/CS185C/assignments/a5/reviews
+
+The script worked, outputting the same results as seen in (7).
+
+To compare, I then tested the script using the training files that only contained the amazon review_body text, and not the similar tweets.
+
+cd ~/CS185C/assignments/a5
+mkdir reviews_notwt
+cd ~/CS185C/assignments/a4
+cp -r REVIEWS_PREPROCESSED_UNHELPFUL ../a5/reviews_notwt
+cp -r REVIEWS_PREPROCESSED ../a5/reviews_notwt
+cd ~/CS185C/assignments/a5
+./text_binary_classify.sh ~/weka-3-8-5 ~/CS185C/assignments/a5/reviews_notwt
+
+The classification returned 195/196 correctly classified instances for the error on training data and 195/196 correctly classified instances using stratified cross-validation. Once again, this seems to be overfitted due to the low amount of data used.
+
+10) Unfortunately, there was no difference due to both datasets being too small and thus overfit during classification via Weka. I would predict that the dataset with relevant twitter tweets would give better results, as each amazon review could then be compared on the basis of whether they contain the same tweets. With my flawed datasets, however, it seems that the dataset without the tweets ended up being "better", albeit by only 1 less misclassification.
+
